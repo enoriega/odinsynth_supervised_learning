@@ -93,6 +93,10 @@ class ModelArguments:
             )
         },
     )
+    loss_func: Optional[str] = field(
+        default="mse",
+        metadata={"help": "mse for mean squared error - mve for margin maximization loss"}
+    )
 
     def __post_init__(self):
         if self.config_overrides is not None and (self.config_name is not None or self.model_name_or_path is not None):
@@ -167,6 +171,12 @@ class DataTrainingArguments:
                 "value if set."
             )
         },
+    )
+    max_spec_seqs: int = field(
+        default=4,
+        metadata={
+            "help": "Number of sentence in the spec to use during training"
+        }
     )
 
     def __post_init__(self):
@@ -390,7 +400,7 @@ def main():
     tokenizer_function = RuleSpecEncoder(tokenizer=tokenizer,
                                          max_seq_length=max_seq_length,
                                          max_spec_seqs=data_args.max_spec_seqs,
-                                         include_parent=data_args.include_parent)
+                                         include_parent=model_args.loss_func == "mve")
 
     tokenized_datasets = raw_datasets.map(
         tokenizer_function,
