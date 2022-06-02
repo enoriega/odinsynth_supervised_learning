@@ -115,8 +115,10 @@ class BertForRuleScoring(BertPreTrainedModel):
                 last_hidden_states[attention_mask == 0, :] = 0.
                 pair_embeds = torch.div(last_hidden_states.sum(dim=1), attention_mask.sum(dim=1).unsqueeze(-1))
             elif rule_sent_encoding == "max":
-                last_hidden_states[attention_mask == 0, :] = last_hidden_states.min()
-                pair_embeds = torch.max(last_hidden_states, dim=1)[0]
+                # Had to do this clone operation to avoid breaking autograd
+                x = last_hidden_states.clone()
+                x[attention_mask == 0, :] = last_hidden_states.min()
+                pair_embeds = torch.max(x, dim=1)[0]
             else:
                 raise ValueError(f"{rule_sent_encoding} is not a valid rule_sentence_encoding option")
         else:

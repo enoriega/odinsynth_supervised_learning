@@ -30,7 +30,7 @@ from transformers.utils import check_min_version
 from transformers.utils.versions import require_version
 
 from modeling_odinsynth.BertForRuleGeneration import BertForRuleScoring
-from modeling_odinsynth.utils import RuleSpecCollator, RuleSpecEncoder
+from modeling_odinsynth.utils import RuleScoringCollator, RuleSpecEncoder
 
 require_version("datasets>=1.8.0", "To fix: pip install -r examples/pytorch/language-modeling/requirements.txt")
 
@@ -452,7 +452,7 @@ def main():
     # Data collator
     # This one will take care of randomly masking the tokens.
     pad_to_multiple_of_8 = data_args.line_by_line and training_args.fp16 and not data_args.pad_to_max_length
-    data_collator = RuleSpecCollator(
+    data_collator = RuleScoringCollator(
         tokenizer=tokenizer,
         # mlm_probability=data_args.mlm_probability,
         pad_to_multiple_of=8 if pad_to_multiple_of_8 else None,
