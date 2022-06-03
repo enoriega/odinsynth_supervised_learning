@@ -2,19 +2,35 @@ from dataclasses import dataclass
 from typing import Optional, Union, Tuple
 
 import torch
-from torch import nn
+from torch import nn, tensor
 from torch.nn import MSELoss, HingeEmbeddingLoss
 from transformers import BertPreTrainedModel, BertModel, BertConfig, AutoTokenizer, AutoConfig
 from transformers.utils import ModelOutput
 
 
-# Child correct:
-# max(0, margin - child_score + parent_score)
-# Child incorrect:
-# max(0, margin - parent_score + child_score)
 
-# tokenizer.add_special_tokens(["<SPAN>"])
-# tokenizer.add_special_tokens(["MYTOK"], special_tokens=True)
+
+def mve_loss(parent_scores:tensor, child_scores:tensor, labels:tensor, margin:float = 1.) -> tensor:
+    # Child correct:
+    # max(0, margin - child_score + parent_score)
+    # Child incorrect:
+    # max(0, margin - parent_score + child_score)
+
+    zeros = torch.zeros_like(child_scores)
+
+    correct_margin = margin - child_scores  +  parent_scores
+    incorrect_margin = margin - parent_scores + child_scores
+
+    correct_margin = torch.stack([zeros, correct_margin], dim=1)
+    incorrect_margin = torch.stack([zeros, incorrect_margin], dim=1)
+
+    correct_loss = torch.max(correct_margin, dim=1)[0]
+    incorrect_loss = torch.max(incorrect_margin, dim=1)[0]
+
+    loss = torch.where(labels.bool(), correct_loss, incorrect_loss)
+
+    # Maybe parameterize the loss reduction in the future
+    return loss.mean()
 
 @dataclass
 class  RuleScoringOutput(ModelOutput):
@@ -157,12 +173,19 @@ class BertForRuleScoring(BertPreTrainedModel):
 
         loss = None
         if labels is not None:
+            scores = scores.squeeze()
+            labels = labels.squeeze()
             if self.config.loss_func == "mse":
                 loss_fct = MSELoss()
-                loss = loss_fct(scores.squeeze(), labels.squeeze())
+                loss = loss_fct(scores, labels)
             elif self.config.loss_func == "margin" and self.config.margin:
-                loss_fct = HingeEmbeddingLoss(margin=self.config.margin)
-                loss = loss_fct(scores.squeeze(), labels.squeeze())
+                # We need to uncollate the parent and child scores from the scores tensors
+                # Also, consider only the labels of the children
+                parent_scores = scores[range(0, len(scores), 2)]
+                child_scores = scores[range(1, len(scores), 2)]
+                labels = labels[range(1, len(labels), 2)]
+                # Custom margin loss
+                loss = mve_loss(parent_scores, child_scores, labels, margin = self.config.margin)
             else:
                 raise ValueError(f'Loss function must be either "mse" or "margin" and have a default margin value')
 

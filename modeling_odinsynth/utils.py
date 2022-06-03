@@ -154,7 +154,7 @@ if __name__ == "__main__":
         ckpt,
         rule_sentence_encoding="max",
         spec_encoding="max",
-        loss_func="mse",
+        loss_func="margin",
         margin=1.
     )
 
@@ -164,7 +164,7 @@ if __name__ == "__main__":
     # Initialize our Trainer
     trainer = Trainer(
         model=model,
-        args=TrainingArguments(no_cuda=True, output_dir='.'),
+        args=TrainingArguments(no_cuda=False, output_dir='.'),
         # args=training_args,
         train_dataset=tokenized_ds,
         # eval_dataset=eval_dataset if training_args.do_eval else None,
