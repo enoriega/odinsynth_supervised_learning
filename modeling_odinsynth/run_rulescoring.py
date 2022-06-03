@@ -29,7 +29,7 @@ from transformers.trainer_utils import get_last_checkpoint
 from transformers.utils import check_min_version
 from transformers.utils.versions import require_version
 
-from modeling_odinsynth.BertForRuleGeneration import BertForRuleScoring
+from modeling_odinsynth.BertForRuleGeneration import BertForRuleScoring, BertForRuleScoringConfig
 from modeling_odinsynth.utils import RuleScoringCollator, RuleSpecEncoder
 
 require_version("datasets>=1.8.0", "To fix: pip install -r examples/pytorch/language-modeling/requirements.txt")
@@ -95,8 +95,25 @@ class ModelArguments:
     )
     loss_func: Optional[str] = field(
         default="mse",
-        metadata={"help": "mse for mean squared error - mve for margin maximization loss"}
+        metadata={"help": "mse for mean squared error - margin for margin maximization loss"}
     )
+    rule_sentence_encoding: Optional[str] = field(
+        default="cls",
+        metadata={"help": '"cls" for the [CLS] token, "avg" for average pooling, "max" for max pooling' }
+    )
+    spec_encoding: Optional[str] = field(
+        default="avg",
+        metadata={"help": '"avg" for average pooling, "max" for max pooling, "attention" for attention mechanism pooling'}
+    )
+    spec_dropout: Optional[float] = field(
+        default=0.2,
+        metadata={"help": "Dropout to apply onto the pooled spec encoding"}
+    )
+    margin: Optional[float]  = field(
+        default= 1.,
+        metadata={"help": "Margin used in th eloss. Used when loss_func is set to margin"}
+    )
+
 
     def __post_init__(self):
         if self.config_overrides is not None and (self.config_name is not None or self.model_name_or_path is not None):
@@ -263,6 +280,7 @@ def main():
             cache_dir=model_args.cache_dir,
             use_auth_token=True if model_args.use_auth_token else None,
         )
+
         if "validation" not in raw_datasets.keys():
             raw_datasets["validation"] = load_dataset(
                 data_args.dataset_name,
@@ -324,18 +342,18 @@ def main():
         "cache_dir": model_args.cache_dir,
         "revision": model_args.model_revision,
         "use_auth_token": True if model_args.use_auth_token else None,
+        "rule_sentence_encoding": model_args.rule_sentence_encoding,
+        "spec_encoding": model_args.spec_encoding,
+        "loss_func": model_args.loss_func,
+        "spec_dropout": model_args.spec_dropout,
+        "margin": model_args.margin
     }
     if model_args.config_name:
-        config = AutoConfig.from_pretrained(model_args.config_name, **config_kwargs)
+        config = BertForRuleScoringConfig.from_pretrained(model_args.config_name, **config_kwargs)
     elif model_args.model_name_or_path:
-        config = AutoConfig.from_pretrained(model_args.model_name_or_path, **config_kwargs)
+        config = BertForRuleScoringConfig.from_pretrained(model_args.model_name_or_path, **config_kwargs)
     else:
-        config = CONFIG_MAPPING[model_args.model_type]()
-        logger.warning("You are instantiating a new config instance from scratch.")
-        if model_args.config_overrides is not None:
-            logger.info(f"Overriding config: {model_args.config_overrides}")
-            config.update_from_string(model_args.config_overrides)
-            logger.info(f"New config: {config}")
+        config = BertForRuleScoringConfig(**config_kwargs)
 
     tokenizer_kwargs = {
         "cache_dir": model_args.cache_dir,
@@ -400,7 +418,7 @@ def main():
     tokenizer_function = RuleSpecEncoder(tokenizer=tokenizer,
                                          max_seq_length=max_seq_length,
                                          max_spec_seqs=data_args.max_spec_seqs,
-                                         include_parent=model_args.loss_func == "mve")
+                                         include_parent=model_args.loss_func == "margin")
 
     tokenized_datasets = raw_datasets.map(
         tokenizer_function,
@@ -435,7 +453,7 @@ def main():
                 logits = logits[0]
             return logits.argmax(dim=-1)
 
-        metric = load_metric("accuracy")
+        metric = load_metric("mse")
 
         def compute_metrics(eval_preds):
             preds, labels = eval_preds
@@ -448,14 +466,15 @@ def main():
             preds = preds[mask]
             return metric.compute(predictions=preds, references=labels)
 
-    # TODO implement our own data collator
     # Data collator
     # This one will take care of randomly masking the tokens.
-    pad_to_multiple_of_8 = data_args.line_by_line and training_args.fp16 and not data_args.pad_to_max_length
+    # pad_to_multiple_of_8 = data_args.line_by_line and training_args.fp16 and not data_args.pad_to_max_length
     data_collator = RuleScoringCollator(
         tokenizer=tokenizer,
-        # mlm_probability=data_args.mlm_probability,
-        pad_to_multiple_of=8 if pad_to_multiple_of_8 else None,
+        # pad_to_multiple_of=8 if pad_to_multiple_of_8 else None,
+        include_parent_seqs= model_args.loss_func == "margin"       # We only need to include
+                                                                    # the parent seqs in the spec
+                                                                    # when using the margin loss
     )
 
     # Initialize our Trainer
@@ -466,10 +485,10 @@ def main():
         eval_dataset=eval_dataset if training_args.do_eval else None,
         tokenizer=tokenizer,
         data_collator=data_collator,
-        compute_metrics=compute_metrics if training_args.do_eval and not is_torch_tpu_available() else None,
-        preprocess_logits_for_metrics=preprocess_logits_for_metrics
-        if training_args.do_eval and not is_torch_tpu_available()
-        else None,
+        # compute_metrics=compute_metrics if training_args.do_eval and not is_torch_tpu_available() else None,
+        # preprocess_logits_for_metrics=preprocess_logits_for_metrics
+        # if training_args.do_eval and not is_torch_tpu_available()
+        # else None,
     )
 
     # Training
@@ -500,16 +519,11 @@ def main():
 
         max_eval_samples = data_args.max_eval_samples if data_args.max_eval_samples is not None else len(eval_dataset)
         metrics["eval_samples"] = min(max_eval_samples, len(eval_dataset))
-        try:
-            perplexity = math.exp(metrics["eval_loss"])
-        except OverflowError:
-            perplexity = float("inf")
-        metrics["perplexity"] = perplexity
 
         trainer.log_metrics("eval", metrics)
         trainer.save_metrics("eval", metrics)
 
-    kwargs = {"finetuned_from": model_args.model_name_or_path, "tasks": "fill-mask"}
+    kwargs = {"finetuned_from": model_args.model_name_or_path, "tasks": "regression"}
     if data_args.dataset_name is not None:
         kwargs["dataset_tags"] = data_args.dataset_name
         if data_args.dataset_config_name is not None:
