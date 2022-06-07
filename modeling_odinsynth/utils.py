@@ -106,7 +106,7 @@ class RuleSpecEncoder:
             max_length=self.max_seq_length,
             pad_to_multiple_of=self.pad_to_multiple_of)
 
-    def __call__(self, examples:Dict[str, Any], include_parent:bool = False) -> Dict[str, Any]:
+    def __call__(self, examples:Dict[str, Any]) -> Dict[str, Any]:
 
         # We are going to prepend the rule with each of the sentences in the spec
         ret = defaultdict(list)
@@ -114,13 +114,13 @@ class RuleSpecEncoder:
         for parent, correct_transition, incorrect_transition, spec, matches in zip(examples['parent'], examples['child'], examples['negative_child'], examples['spec'], examples['matches']):
             seqs = self.__insert_span_tokens(spec, matches)
 
-            positive_batch_encoding = self.__prepend_rule(correct_transition, parent if  include_parent else None,  seqs)
+            positive_batch_encoding = self.__prepend_rule(correct_transition, parent if  self.include_parent else None,  seqs)
 
             for k, v in positive_batch_encoding.items():
                 ret[k].append(v)
             ret['labels'].append(1.)
 
-            negative_batch_encoding =  self.__prepend_rule(incorrect_transition, parent if include_parent else None, seqs)
+            negative_batch_encoding =  self.__prepend_rule(incorrect_transition, parent if self.include_parent else None, seqs)
 
             for k, v in negative_batch_encoding.items():
                 ret[k].append(v)
