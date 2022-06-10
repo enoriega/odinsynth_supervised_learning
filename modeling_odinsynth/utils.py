@@ -4,7 +4,7 @@ from typing import Optional, List, Dict, Any, Tuple
 
 import torch
 from datasets import load_dataset
-from transformers import PreTrainedTokenizerBase, AutoTokenizer, Trainer, TrainingArguments
+from transformers import PreTrainedTokenizerBase, AutoTokenizer, Trainer, TrainingArguments, is_torch_tpu_available
 from transformers.data.data_collator import DataCollatorMixin, DataCollatorWithPadding
 
 import itertools as it
@@ -161,22 +161,26 @@ if __name__ == "__main__":
     model = BertForRuleScoring.from_pretrained(ckpt, config=config)
     model.resize_token_embeddings(len(tokenizer))
 
+    def compute_metrics(*args):
+        return {"new_emtric": 10}
+
     # Initialize our Trainer
     trainer = Trainer(
         model=model,
         args=TrainingArguments(no_cuda=False, output_dir='.'),
         # args=training_args,
         train_dataset=tokenized_ds,
+        eval_dataset=tokenized_ds,
         # eval_dataset=eval_dataset if training_args.do_eval else None,
         tokenizer=tokenizer,
         data_collator=collator,
-        # compute_metrics=compute_metrics if training_args.do_eval and not is_torch_tpu_available() else None,
+        compute_metrics=compute_metrics
         # preprocess_logits_for_metrics=preprocess_logits_for_metrics
         # if training_args.do_eval and not is_torch_tpu_available()
         # else None,
     )
 
-    trainer.train()
+    trainer.evaluate()
 
 
 

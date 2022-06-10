@@ -36,7 +36,7 @@ def mve_loss(parent_scores:tensor, child_scores:tensor, labels:tensor, margin:fl
 class  RuleScoringOutput(ModelOutput):
     loss: Optional[torch.FloatTensor] = None
     scores: torch.FloatTensor = None
-    spec_sizes: list[int] = None
+    spec_sizes: torch.IntTensor = None
     hidden_states: Optional[Tuple[torch.FloatTensor]] = None
     attentions: Optional[Tuple[torch.FloatTensor]] = None
 
@@ -191,13 +191,13 @@ class BertForRuleScoring(BertPreTrainedModel):
 
 
         if not return_dict:
-            output = (scores, spec_sizes) + outputs[2:]
+            output = (scores, torch.tensor(spec_sizes)) + outputs[2:]
             return ((loss,) + output) if loss is not None else output
 
         return RuleScoringOutput(
             loss=loss,
             scores=scores,
-            spec_sizes = spec_sizes,
+            spec_sizes = torch.tensor(spec_sizes, device=loss.device),
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,
         )
