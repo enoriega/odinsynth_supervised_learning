@@ -197,7 +197,7 @@ class BertForRuleScoring(BertPreTrainedModel):
         return RuleScoringOutput(
             loss=loss,
             scores=scores,
-            spec_sizes = torch.tensor(spec_sizes, device=loss.device),
+            spec_sizes = torch.tensor(spec_sizes, device=self.device),
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,
         )

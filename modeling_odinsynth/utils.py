@@ -128,6 +128,24 @@ class RuleSpecEncoder:
 
         return ret
 
+    def pipeline_call(self,  examples:Dict[str, Any]) -> Dict[str, Any]:
+        """ Similar to __call__ but meant to be use by a pipeline object during inference """
+
+        # We are going to prepend the rule with each of the sentences in the spec
+        ret = {}
+
+        rule, spec, matches = examples['rule'], examples['spec'],examples['matches']
+
+        seqs = self.__insert_span_tokens(spec, matches)
+
+        positive_batch_encoding = self.__prepend_rule(rule, parent=None, seqs=seqs)
+
+        for k, v in positive_batch_encoding.items():
+            ret[k] = v
+
+
+        return {**ret}
+
 if __name__ == "__main__":
     ds = load_dataset("enoriega/odinsynth_dataset", split="train")
     ds = ds.select(range(1000))
