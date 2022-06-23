@@ -75,7 +75,20 @@ class BertForRuleScoring(BertPreTrainedModel):
         # This is the regression layer, to predict the encoded spec's score
         self.regressor = nn.Linear(config.hidden_size, 1)
 
-        # TODO implement the attention pooling parameters and mechanism
+        # If the config requests an attention spec aggregation
+        if self.config.spec_encoding == "attention":
+            # Linear maps to project the spec into Key and Value spaces
+            self.spec_key = nn.Linear(config.hidden_size, config.hidden_size)
+            self.spec_value = nn.Linear(config.hidden_size, config.hidden_size)
+            # The query will be a single, tunable parameter
+            # Dim 1 is of size 1, because we want to aggregate the encoded spec elements into a single pooled representation
+            query_store = torch.empty(1, config.hidden_size)
+            # Will do xavier initialization on the query parameter
+            nn.init.xavier_uniform_(query_store)
+            # Make it a model parameter to accept updates
+            self.spec_query = nn.Parameter(data=query_store)
+            # Instantiate a multi-head attention layer, with a single head
+            self.spec_attention = nn.MultiheadAttention(config.hidden_size, 1,  batch_first=True)
 
         # Initialize weights and apply final processing
         self.post_init()
@@ -157,7 +170,11 @@ class BertForRuleScoring(BertPreTrainedModel):
             elif spec_encoding == "max":
                 spec = split.max(dim=0)[0]
             elif spec_encoding == "attention":
-                raise NotImplemented("Spec attention pooling is not implemented yet")
+                spec = self.spec_attention(
+                    self.spec_query,
+                    self.spec_key(split),
+                    self.spec_value(split)
+                )[0].squeeze()
             else:
                 raise ValueError(f"{spec_encoding} is not a valid spec encoding option")
 
@@ -210,7 +227,7 @@ if __name__ == "__main__":
     config = BertForRuleScoringConfig.from_pretrained(
         ckpt,
         rule_sentence_encoding="max",
-        spec_encoding="max",
+        spec_encoding="attention",
         loss_func="margin",
         margin=1.
     )
@@ -229,7 +246,7 @@ if __name__ == "__main__":
     labels = torch.tensor([1, -1])
 
 
-    outputs = model(**inputs, spec_sizes=[2, 3], labels = labels)
+    outputs = model(**inputs, spec_sizes=[2, 2], labels = labels)
 
     print(outputs.scores)
     print(outputs.loss)
