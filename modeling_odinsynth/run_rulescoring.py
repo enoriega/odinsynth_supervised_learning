@@ -102,6 +102,12 @@ class ModelArguments:
         default="cls",
         metadata={"help": '"cls" for the [CLS] token, "avg" for average pooling, "max" for max pooling' }
     )
+    ignore_spec: Optional[bool] = field(
+        default=False,
+        metadata={
+            "help": "True only if we want to ignore the spec and just encode the rule"
+        }
+    )
     spec_encoding: Optional[str] = field(
         default="avg",
         metadata={"help": '"avg" for average pooling, "max" for max pooling, "attention" for attention mechanism pooling'}
@@ -419,7 +425,8 @@ def main():
     tokenizer_function = RuleSpecEncoder(tokenizer=tokenizer,
                                          max_seq_length=max_seq_length,
                                          max_spec_seqs=data_args.max_spec_seqs,
-                                         include_parent=model_args.loss_func == "margin")
+                                         include_parent=model_args.loss_func == "margin",
+                                         ignore_spec=model_args.ignore_spec)
 
     tokenized_datasets = raw_datasets.map(
         tokenizer_function,

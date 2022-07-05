@@ -77,6 +77,7 @@ class RuleSpecEncoder:
     pad_to_multiple_of: Optional[int] = None
     max_spec_seqs: Optional[int] = None
     include_parent: bool = False
+    ignore_spec: bool = False
 
     start_tag: str = "<sp>"
     end_tag: str = "</sp>"
@@ -96,15 +97,27 @@ class RuleSpecEncoder:
         return seqs
 
     def __prepend_rule(self, rule:str, parent:Optional[str], seqs:list[str]):
-        return self.tokenizer.batch_encode_plus(
-            list(it.chain(
-                zip([parent] * len(seqs), seqs) if parent else [],
-                zip([rule] * len(seqs), seqs)
-            )),
-            padding=True,
-            truncation=True,
-            max_length=self.max_seq_length,
-            pad_to_multiple_of=self.pad_to_multiple_of)
+        if len(seqs) > 1:
+            return self.tokenizer.batch_encode_plus(
+                list(it.chain(
+                    zip([parent] * len(seqs), seqs) if parent else [],
+                    zip([rule] * len(seqs), seqs)
+                )),
+                padding=True,
+                truncation=True,
+                max_length=self.max_seq_length,
+                pad_to_multiple_of=self.pad_to_multiple_of)
+        else:
+            assert self.ignore_spec, "Ignoring the spec when shouldn't be"
+            return self.tokenizer.batch_encode_plus(
+                list(it.chain(
+                    [parent] if parent else [],
+                    [rule]
+                )),
+                padding=True,
+                truncation=True,
+                max_length=self.max_seq_length,
+                pad_to_multiple_of=self.pad_to_multiple_of)
 
     def __call__(self, examples:Dict[str, Any]) -> Dict[str, Any]:
 
@@ -112,7 +125,7 @@ class RuleSpecEncoder:
         ret = defaultdict(list)
 
         for parent, correct_transition, incorrect_transition, spec, matches in zip(examples['parent'], examples['child'], examples['negative_child'], examples['spec'], examples['matches']):
-            seqs = self.__insert_span_tokens(spec, matches)
+            seqs = self.__insert_span_tokens(spec, matches) if not self.ignore_spec else []
 
             positive_batch_encoding = self.__prepend_rule(correct_transition, parent if  self.include_parent else None,  seqs)
 
