@@ -37,8 +37,9 @@ def generate_transitions(datum):
             for transition_ix, (s, e) in enumerate(zip(path, path[1:])):
 
                 # Generate a negative transition
-                transitions = [t for t in s.expand_leftmost_hole(vocab) if t != e]
-                e_negative = random.choice(transitions) if len(transitions) > 0 else ''
+                transitions = [str(t) for t in s.expand_leftmost_hole(vocab) if t != e]
+                # e_negative = random.choice(transitions) if len(transitions) > 0 else ''
+                e_negative = ' %% '.join(transitions) if len(transitions) > 0 else ''
 
                 s = str(s)
                 e = str(e)
@@ -49,7 +50,7 @@ def generate_transitions(datum):
                     heapq.heappush(heap, (datum['id'], s, e, e_negative, transition_ix + 1, path_length))
 
 
-        with open(f'train/{datum["id"]}.tsv', 'w') as f:
+        with open(f'data_many_negatives/{datum["id"]}.tsv', 'w') as f:
             writer = csv.writer(f, delimiter='\t')
             writer.writerows(heap)
 
@@ -59,7 +60,7 @@ if __name__ == "__main__":
 
     ex = ProcessPoolExecutor()
     futures = list()
-    with open("data/merged_train_split_train.jsonl") as f:
+    with open("merged_train_split_train.jsonl") as f:
 
         for line in tqdm(f, desc="Submitting futures"):
             try:
