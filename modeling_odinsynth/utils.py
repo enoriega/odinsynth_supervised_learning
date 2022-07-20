@@ -97,7 +97,7 @@ class RuleSpecEncoder:
         return seqs
 
     def __prepend_rule(self, rule:str, parent:Optional[str], seqs:list[str]):
-        if len(seqs) > 1:
+        if len(seqs) > 0:
             return self.tokenizer.batch_encode_plus(
                 list(it.chain(
                     zip([parent] * len(seqs), seqs) if parent else [],
