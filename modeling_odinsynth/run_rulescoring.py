@@ -141,6 +141,9 @@ class DataTrainingArguments:
     dataset_config_name: Optional[str] = field(
         default=None, metadata={"help": "The configuration name of the dataset to use (via the datasets library)."}
     )
+    revision_name: Optional[str] = field(
+        default="main", metadata={"help": "Revision name of the dataset"}
+    )
     train_file: Optional[str] = field(default=None, metadata={"help": "The input training data file (a text file)."})
     validation_file: Optional[str] = field(
         default=None,
@@ -284,6 +287,7 @@ def main():
         raw_datasets = load_dataset(
             data_args.dataset_name,
             data_args.dataset_config_name,
+            revision=data_args.revision_name,
             cache_dir=model_args.cache_dir,
             use_auth_token=True if model_args.use_auth_token else None,
         )
@@ -292,6 +296,7 @@ def main():
             raw_datasets["validation"] = load_dataset(
                 data_args.dataset_name,
                 data_args.dataset_config_name,
+                revision=data_args.revision_name,
                 split=f"train[:{data_args.validation_split_percentage}%]",
                 cache_dir=model_args.cache_dir,
                 use_auth_token=True if model_args.use_auth_token else None,
@@ -299,6 +304,7 @@ def main():
             raw_datasets["train"] = load_dataset(
                 data_args.dataset_name,
                 data_args.dataset_config_name,
+                revision=data_args.revision_name,
                 split=f"train[{data_args.validation_split_percentage}%:]",
                 cache_dir=model_args.cache_dir,
                 use_auth_token=True if model_args.use_auth_token else None,
