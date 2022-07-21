@@ -1,12 +1,13 @@
 import collections
 from pprint import pprint
 from typing import Dict, Any, Optional
+import itertools as it
 
 import torch
 from datasets import Dataset
 from transformers import Pipeline, pipeline, AutoTokenizer
 
-from modeling_odinsynth.BertForRuleGeneration import BertForRuleScoring, BertForRuleScoringConfig
+from modeling_odinsynth.BertForRuleGeneration import BertForRuleScoring, BertForRuleScoringConfig, RuleScoringOutput
 from modeling_odinsynth.utils import RuleSpecEncoder
 
 
@@ -53,7 +54,7 @@ class RuleScoringPipeline(Pipeline):
 
 
     @staticmethod
-    def __melt_tensors(model_inputs):
+    def _melt_tensors(model_inputs):
         """ Post-processing of the pre-processing, needs to operate at batch level """
         melted = {}
 
@@ -80,7 +81,7 @@ class RuleScoringPipeline(Pipeline):
 
     def _forward(self, model_inputs, **kwargs):
         # Necessary to "melt" the batch dimension into a 2d tensor and to remove the empty padded sequences from the batch
-        model_inputs = self.__melt_tensors(model_inputs)
+        model_inputs = self._melt_tensors(model_inputs)
         # Run the rule-scorer model
         outputs = self.model(**model_inputs)
         return outputs
@@ -101,6 +102,36 @@ class RuleScoringPipeline(Pipeline):
         return ret
 
 
+class BaselineRuleScoringPipeline(RuleScoringPipeline):
+
+    def _forward(self, model_inputs, **kwargs):
+        """ Here we will do a baseline model that instead of encoding all of the sentences in the stack,
+         averages all the scores of each individual score"""
+        # Necessary to "melt" the batch dimension into a 2d tensor and to remove the empty padded sequences from the batch
+        model_inputs = self._melt_tensors(model_inputs)
+
+        # We will "hack" the scorer to generate individual scores per sentence by manipulating at the spec_sizes tensor
+        orig_spec_sizes = model_inputs['spec_sizes']
+        unrolled_spec_sizes = tuple(it.chain.from_iterable([1]*size for size in orig_spec_sizes))
+        model_inputs['spec_sizes'] = unrolled_spec_sizes
+
+        # Run the rule-scorer model
+        outputs = self.model(**model_inputs)
+
+        # Aggregate the outputs and restore the original spec_sizes
+        curr = 0
+        averaged_scores = list()
+        for spec_size in orig_spec_sizes:
+            individual_scores = outputs.scores[curr:curr+spec_size]
+            avg_score = individual_scores.mean()
+            averaged_scores.append(avg_score.unsqueeze(dim=0))
+        averaged_scores = torch.concat(averaged_scores, dim=0)
+
+        new_ouputs = RuleScoringOutput(**outputs)
+        new_ouputs['scores'] = averaged_scores
+        new_ouputs['spec_sizes'] = torch.tensor(orig_spec_sizes)
+        return new_ouputs
+
 if __name__ == "__main__":
     # This is a usage example
     checkpoint = "enoriega/rule_learning_margin_1mm_spanpred"
@@ -108,7 +139,7 @@ if __name__ == "__main__":
     model = BertForRuleScoring.from_pretrained(checkpoint, config=config)
 
     # scorer = pipeline(model=checkpoint, pipeline_class=RuleScoringPipeline)
-    pipe = RuleScoringPipeline(model=model,
+    pipe = BaselineRuleScoringPipeline(model=model,
                                tokenizer=AutoTokenizer.from_pretrained(checkpoint),
                                max_spec_seqs=4, device=-1)
 
@@ -161,6 +192,6 @@ if __name__ == "__main__":
     d2['spec'] = d2['spec'][:1]
     d2['matches'] = d2['matches'][:1]
 
-    data = [d2, d]
+    data = [d2]
     scores = pipe(data, batch_size=1)
     pprint(scores)
